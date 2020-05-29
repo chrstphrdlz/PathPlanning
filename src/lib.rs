@@ -2,7 +2,8 @@ mod path_finding {
     use petgraph::algo::{bellman_ford, dijkstra};
     use petgraph::graphmap::UnGraphMap;
     pub use petgraph::Graph;
-    use std::borrow::Borrow;
+    use rand::Rng;
+    use std::borrow::{Borrow, BorrowMut};
     use std::collections::HashSet;
     use std::time::Instant;
 
@@ -95,7 +96,7 @@ mod path_finding {
             .abs();
     }
 
-    fn collision_between(p1: Point, p2: Point, g: UnGraphMap<Point, i32>) -> bool {
+    fn collision_between(p1: Point, p2: Point, g: &UnGraphMap<Point, i32>) -> bool {
         let path: Path = Path {
             line: Line {
                 first: p1.clone(),
@@ -113,12 +114,65 @@ mod path_finding {
         return false;
     }
 
+    fn distance(p1: Point, p2: Point) -> f64 {
+        return (((p1.0 - p2.0).pow(2) + (p1.1 - p2.1).pow(2)) as f64).sqrt();
+    }
+
+    fn connect_to_shortest_reachable_distance(
+        set: &HashSet<Point>,
+        candidate: Point,
+        g: &UnGraphMap<Point, i32>,
+    ) -> Option<(i32, Point)> {
+        return set
+            .into_iter()
+            .filter(|&p| !collision_between(*p, candidate, g))
+            .fold(Option::None, |p1, p2| {
+                let d2 = distance(candidate, *p2).ceil() as i32;
+                if p1.is_none() {
+                    return Option::Some((d2, *p2));
+                }
+                let d1 = p1.unwrap().0;
+                if d1 < d2 {
+                    return p1;
+                } else {
+                    return Option::Some((d2, *p2));
+                }
+            });
+    }
+
+    fn random_point(sx: i32, sy: i32) -> Point {
+        let mut rng = rand::thread_rng();
+        return (rng.gen(), rng.gen());
+    }
+
+    fn build_rrt(g: UnGraphMap<Point, i32>, size: i32, xs: i32, ys: i32) -> UnGraphMap<Point, i32> {
+        let mut g = UnGraphMap::<Point, i32>::new();
+        let mut candidates = HashSet::<Point>::new();
+        while candidates.len() < size as usize {
+            let candidate = random_point(xs, ys);
+            if !candidates.contains(&candidate) {
+                let nearest_distance =
+                    connect_to_shortest_reachable_distance(&candidates, candidate, &g);
+                match nearest_distance {
+                    Some(x) => {
+                        let point = x.1;
+                        g.borrow_mut().add_node(point);
+                        g.borrow_mut().add_edge(point, candidate, x.0);
+                    }
+                    _ => (),
+                }
+            }
+        }
+
+        return g;
+    }
+
     #[test]
     fn find_path_dfs() {
         // Approximately 1 cm descretization, 100 meters in length and width.
         for graph_size_power in (7..10) {
             let now = Instant::now();
-            let base :i32= 2;
+            let base: i32 = 2;
             let graph_size = base.pow(graph_size_power);
             let house: petgraph::graphmap::GraphMap<(i32, i32), i32, petgraph::Undirected> =
                 build_empty_tile_graph(graph_size, graph_size);
@@ -128,7 +182,11 @@ mod path_finding {
                 Option::Some((graph_size - 1, graph_size - 1)),
                 |_| 1,
             );
-            println!("graph size: {}, milliseconds elapsed: {}", graph_size, now.elapsed().as_millis());
+            println!(
+                "graph size: {}, milliseconds elapsed: {}",
+                graph_size,
+                now.elapsed().as_millis()
+            );
         }
     }
 
